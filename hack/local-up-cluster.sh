@@ -87,12 +87,13 @@ function test_docker {
 # Shut down anyway if there's an error.
 set +e
 
+HOSTNAME=`hostname`
 API_PORT=${API_PORT:-8080}
 API_HOST=${API_HOST:-127.0.0.1}
 # By default only allow CORS for requests on localhost
 API_CORS_ALLOWED_ORIGINS=${API_CORS_ALLOWED_ORIGINS:-"/127.0.0.1(:[0-9]+)?$,/localhost(:[0-9]+)?$"}
 KUBELET_PORT=${KUBELET_PORT:-10250}
-LOG_LEVEL=${LOG_LEVEL:-3}
+LOG_LEVEL=${LOG_LEVEL:-4}
 CONTAINER_RUNTIME=${CONTAINER_RUNTIME:-"docker"}
 RKT_PATH=${RKT_PATH:-""}
 RKT_STAGE1_IMAGE=${RKT_STAGE1_IMAGE:-""}
@@ -252,7 +253,7 @@ function start_apiserver {
 
     # Wait for kube-apiserver to come up before launching the rest of the components.
     echo "Waiting for apiserver to come up"
-    kube::util::wait_for_url "http://${API_HOST}:${API_PORT}/api/v1/pods" "apiserver: " 1 10 || exit 1
+    kube::util::wait_for_url "http://${API_HOST}:${API_PORT}/api/v1/pods" "apiserver: " 1 20 || exit 1
 }
 
 function start_controller_manager {
@@ -306,10 +307,12 @@ function start_kubelet {
         --container-runtime="${CONTAINER_RUNTIME}" \
         --rkt-path="${RKT_PATH}" \
         --rkt-stage1-image="${RKT_STAGE1_IMAGE}" \
-        --hostname-override="127.0.0.1" \
+	--hostname-override="$HOSTNAME" \
         --address="127.0.0.1" \
         --api-servers="${API_HOST}:${API_PORT}" \
         --cpu-cfs-quota=${CPU_CFS_QUOTA} \
+	--cloud-provider=openstack \
+	--cloud-config=/tmp/cloud.conf \
         --cluster-dns="127.0.0.1" \
         ${net_plugin_args} \
         ${kubenet_plugin_args} \
@@ -332,7 +335,7 @@ function start_kubelet {
         -i \
         --cidfile=$KUBELET_CIDFILE \
         gcr.io/google_containers/kubelet \
-        /kubelet --v=3 --containerized ${priv_arg}--chaos-chance="${CHAOS_CHANCE}" --hostname-override="127.0.0.1" --address="127.0.0.1" --api-servers="${API_HOST}:${API_PORT}" --port="$KUBELET_PORT" --resource-container="" &> $KUBELET_LOG &
+        /kubelet --v=3 --containerized ${priv_arg}--chaos-chance="${CHAOS_CHANCE}" --hostname-override="$HOSTNAME" --address="127.0.0.1" --api-servers="${API_HOST}:${API_PORT}" --port="$KUBELET_PORT" --resource-container="" &> $KUBELET_LOG &
     fi
 }
 
@@ -340,7 +343,7 @@ function start_kubeproxy {
     PROXY_LOG=/tmp/kube-proxy.log
     sudo -E "${GO_OUT}/kube-proxy" \
       --v=${LOG_LEVEL} \
-      --hostname-override="127.0.0.1" \
+      --hostname-override="$HOSTNAME" \
       --master="http://${API_HOST}:${API_PORT}" >"${PROXY_LOG}" 2>&1 &
     PROXY_PID=$!
 
